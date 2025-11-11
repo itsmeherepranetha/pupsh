@@ -174,7 +174,54 @@ def get_history(input:str)->None:
     for i in range(startindex+1,total+1): # type: ignore # 1-based indexing in get_history_item()
         print(f"    {i}  {readline.get_history_item(i)}") # type: ignore
 
+
+def execute_pipeline(stages:list[list[str]]):
+    prev_read_fd=None # to store the previous command's read end of pipe 
+    num_cmds=len(stages)
+    for i,tokens in enumerate(stages):
+        # create a pipe except for last command
+        if i<num_cmds-1:
+            r,w=os.pipe() # file descriptors for the read and write end of the pipe
+        else:
+            r,w=None,None
+        
+        pid=os.fork() # type: ignore
+        # parent and child processes create their own separate copies of the open file descriptors(fd table)
+
+        if pid==0: # child process
+            if prev_read_fd:
+                os.dup2(prev_read_fd,0) # make it stdin(fd=0) for input from previous process
+                os.close(prev_read_fd) # closing the original pipe since its not needed now
+            
+            if w and r:
+                # child's only work is to write to w
+                os.dup2(w,1) # writing to stdout(fd=1)
+                os.close(w) # closing the original write end of the pipe now , since now its assigned to stdout
+                os.close(r) # closing the original read since the child does not read anything from here
+
+            # execution of the command , which is why created the child process for
+            os.execvp(tokens[0],tokens) # replaces the whole child process , with this process
+            # exits internally too
+
+        else: # parent process
+            if prev_read_fd:
+                os.close(prev_read_fd)
+            if w:
+                os.close(w) # since the parent process has no writing to do to w
+            prev_read_fd=r # so that the next process can read from this read end of the pipe
+    
+    # Wait for all children
+    for _ in range(num_cmds):
+        os.wait() # type: ignore
+
+
 def handle_command(command:str)->None:
+    # pipelines
+    if "|" in command:
+        stages=[parse_input(stage) for stage in command.split("|")]
+        execute_pipeline(stages)
+        return
+
     # parsing like how a shell would parse
     tokens=parse_input(command)
     # extracting any redirections for stdout,stderr , if any
