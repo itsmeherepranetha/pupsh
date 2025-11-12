@@ -200,8 +200,12 @@ def execute_pipeline(stages:list[list[str]]):
                 os.close(r) # closing the original read since the child does not read anything from here
 
             # execution of the command , which is why created the child process for
-            os.execvp(tokens[0],tokens) # replaces the whole child process , with this process
-            # exits internally too
+            if tokens[0] in builtin_commands:
+                builtin_commands[tokens[0]](" ".join(tokens[1:]))
+                os._exit(0)  # must exit to avoid continuing parent logic
+            else:
+                os.execvp(tokens[0],tokens) # replaces the whole child process , with this process
+                # exits internally too
 
         else: # parent process
             if prev_read_fd:
